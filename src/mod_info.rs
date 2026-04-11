@@ -1,22 +1,125 @@
-use std::collections::HashMap;
+use crate::util::{to_safe_name, to_skewer_case};
+use anyhow::{Context, Result};
+use semver::Version;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
 
-#[derive(Serialize, Deserialize)]
-pub struct ModInfo {
-	pub name: String,
-	pub id: String,
-	pub version: String,
+#[derive(Debug, Clone)]
+pub struct ModInfoOverride {
+	pub name: Option<String>,
+	pub id: Option<String>,
+	pub version: Option<Version>,
 	pub priority: Option<u32>,
-	pub autoload: Option<ModAutoloadInfo>,
+	pub autoload: Option<HashMap<String, String>>,
 	pub updates: Option<ModUpdatesInfo>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ModAutoloadInfo {
-	pub data: HashMap<String, String>
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ModInfo {
+	#[serde(rename = "mod")]
+	pub base: ModBaseInfo,
+	pub autoload: Option<HashMap<String, String>>,
+	pub updates: Option<ModUpdatesInfo>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ModBaseInfo {
+	pub name: String,
+	pub id: String,
+	pub version: Version,
+	pub priority: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ModUpdatesInfo {
 	pub modworkshop: u32,
+}
+
+impl ModInfo {
+	pub fn default_from(mod_name: String) -> Self {
+		let mod_safe_name = to_safe_name(&mod_name);
+		let mod_id = to_skewer_case(&mod_name);
+
+		Self {
+			base: ModBaseInfo {
+				name: mod_name.clone(),
+				id: mod_id.clone(),
+				version: Version::new(0, 1, 0),
+				priority: None,
+			},
+			autoload: Some(HashMap::from([
+				(
+					mod_safe_name.clone(),
+					format!("res://mods/{mod_safe_name}/Main.gd"),
+				),
+			])),
+			updates: None,
+		}
+	}
+
+	pub fn from_path(path: &Path) -> Result<Self> {
+		let content = std::fs::read_to_string(path)
+			.with_context(|| format!("failed to read mod info from {}", path.display()))?;
+		let info = toml::from_str(&content)
+			.with_context(|| format!("failed to parse mod info from {}", path.display()))?;
+		Ok(info)
+	}
+
+	pub fn to_string(&self) -> Result<String> {
+		let content = toml::to_string(&self)?;
+		Ok(content)
+	}
+
+	pub fn write(&self, path: &Path) -> Result<()> {
+		let content = self.to_string()?;
+		std::fs::create_dir_all(path.parent().unwrap())?;
+		std::fs::write(path, &content)?;
+		Ok(())
+	}
+}
+
+/*
+write a test to deserialize this to struct:
+[mod]
+name="Oldman's Immersive Overhaul"
+id="immersive-xp"
+version="2.2.2"
+
+[autoload]
+ImmersiveXP="res://ImmersiveXP/Main.gd"
+ImmersiveXPConfig="res://ImmersiveXP/Config.gd"
+
+[updates]
+modworkshop=50811
+ */
+
+#[test]
+fn test_mod_info() {
+	let info = ModInfo {
+		base: ModBaseInfo {
+			name: "Oldman's Immersive Overhaul".to_string(),
+			id: "immersive-xp".to_string(),
+			version: Version::parse("2.2.2").unwrap(),
+			priority: None,
+		},
+		autoload: Some(HashMap::from([
+			(
+				"ImmersiveXP".to_string(),
+				"res://ImmersiveXP/Main.gd".to_string(),
+			),
+			(
+				"ImmersiveXPConfig".to_string(),
+				"res://ImmersiveXP/Config.gd".to_string(),
+			),
+		])),
+		updates: Some(ModUpdatesInfo { modworkshop: 50811 }),
+	};
+
+	println!("{:#?}", info);
+	let toml = toml::to_string(&info).unwrap();
+	println!("{}", toml);
+
+	let deserialized: ModInfo = toml::from_str(&toml).unwrap();
+	println!("{:#?}", deserialized);
 }
