@@ -1,7 +1,0 @@
-[mod]
-name="${MOD_NAME}"
-id="${MOD_ID}"
-version="0.1.0"
-
-[autoload]
-${MOD_SAFE_NAME}="res://mods/${MOD_SAFE_NAME}/Main.gd"

@@ -13,20 +13,16 @@ Usage:
 
 Commands:
   init     Initialize the given path with mod boilerplate
+  modify   Modify parameters of the mod
   pack     Package one or more files/directories into a .vmz archive
   install  Install a [.zip|.vmz] archive or a mod root directory into an auto-detected or provided directory
+  log      Displays the latest output log (if available)
   help     Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help
   -V, --version  Print version
 ```
-
-## Command Usage
-
-- Use `vmb init [--no-git] [--update-id=1234] ./mod/path ` to create boilerplate files such as: `mod.txt` and `mods/<MOD_NAME>/Main.gd` from embedded templates, optionally skipping git repository intitialization.
-- Use `vmb pack -o "./path/output.vmz" file1 file2 ...` to package files/directories into a `.vmz` zip archive.
-- Use `vmb install [source] [path]` to copy an archive or mod root directory (source) to the detected mods directory; mod roots are packed to a temporary `.vmz` first. `[source]` defaults to `.` and `[path]` is used if the default install path cannot be detected or is not desired.
 
 For more help on a specific command, run `vmb <COMMAND> --help` or `vmb help <COMMAND>`.
 
@@ -37,6 +33,22 @@ For more help on a specific command, run `vmb <COMMAND> --help` or `vmb help <CO
 1. `VOSTOK_PATH` (expects the game installation path; installs to `<VOSTOK_PATH>/mods`)
 1. Optional `path` argument
 1. On Windows, `C:\Program Files (x86)\Steam\steamapps\common\Road to Vostok\` when present
+
+## Example
+```shell
+# Initialize a mod directory with git repository
+vmb init "My First Mod"
+cd "My First Mod"
+
+# Package the mod directory into a .vmz archive
+vmb pack -o MyFirstMod.vmz ./mods ./mod.txt
+# Modify the mod's parameters (e.g., name, version, priority)
+vmb modify -n "My First Custom Mod" -i "my-first-mod-id" -p 10 -v 1.0.0 -u 12345
+# Install the mod from the .vmz archive to the detected mods directory
+vmb install MyFirstMod.vmz
+# Alternatively, install the mod directly from the mod directory
+vmb install .
+```
 
 ## Building
 
