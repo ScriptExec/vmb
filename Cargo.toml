@@ -3,9 +3,16 @@ name = "vmb"
 build = "build.rs"
 authors = ["ScriptExec"]
 description = "Vostok Mod Builder - A tool for building mods for Road to Vostok"
+repository = "https://github.com/ScriptExec/vmb"
 readme = "README.md"
 version = "0.1.0"
 edition = "2024"
+
+[package.metadata.wix]
+upgrade-guid = "CF05FA90-BC89-481D-A48F-705B038B75B9"
+path-guid = "B2C61A0E-6D2F-4811-A1ED-0B7368B77C24"
+license = false
+eula = false
 
 [dependencies]
 anyhow = "1.0.102"
@@ -18,3 +25,8 @@ zip = { version = "8.5.1", default-features = false, features = ["deflate"] }
 
 [profile.release]
 opt-level = "z"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
