@@ -1,4 +1,5 @@
 use anyhow::Context;
+use console::style;
 use std::fs;
 use std::path::Path;
 
@@ -64,3 +65,12 @@ pub fn is_working_dir(path: &Path) -> bool {
 		_ => false,
 	}
 }
+
+pub fn print_status(status: &str, message: impl AsRef<str>) {
+	println!("{:>12} {}", style(status).green().bold(), message.as_ref());
+}
+
+pub fn print_error(message: impl AsRef<str>) {
+	eprintln!("{} {}", style("error:").red().bold(), message.as_ref());
+}
+

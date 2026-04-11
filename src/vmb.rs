@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::util::{derive_dir_name, to_safe_name, to_skewer_case};
+use crate::util::{derive_dir_name, print_status, to_safe_name, to_skewer_case};
 use anyhow::{bail, Context, Result};
 use git2::Repository;
 use tempfile::TempDir;
@@ -77,12 +77,18 @@ impl Vmb {
         .with_context(|| format!("failed to write {}", main_gd_path.display()))?;
 
         if no_git {
-            println!("Skipping git repository initialization (\"--no-git\" specified)");
+            print_status(
+                "Skipping",
+                "git repository initialization (\"--no-git\" specified)",
+            );
         } else {
             Self::init_git_repo(&mod_path)?;
         }
 
-        println!("Initialized mod '{}' at {}", mod_name, mod_path.display());
+        print_status(
+            "Initialized",
+            format!("mod '{}' at {}", mod_name, mod_path.display()),
+        );
         Ok(())
     }
 
@@ -174,7 +180,7 @@ impl Vmb {
         }
 
         writer.finish().context("failed to finalize archive")?;
-        println!("Created {}", output.display());
+        print_status("Created", output.display().to_string());
         Ok(())
     }
 
@@ -245,7 +251,7 @@ impl Vmb {
             )
         })?;
 
-        println!("Installed {}", destination.display());
+        print_status("Installed", destination.display().to_string());
         Ok(())
     }
 
