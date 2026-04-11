@@ -3,6 +3,7 @@ name = "vmb"
 build = "build.rs"
 authors = ["ScriptExec"]
 description = "Vostok Mod Builder - A tool for building mods for Road to Vostok"
+readme = "README.md"
 version = "0.1.0"
 edition = "2024"
 
