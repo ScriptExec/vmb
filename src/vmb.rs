@@ -271,7 +271,7 @@ impl Vmb {
 		if let Some(vostok_path) = std::env::var_os("VOSTOK_PATH") {
 			let path = PathBuf::from(vostok_path);
 			return match path.is_dir() {
-				true => Ok(path),
+				true => Ok(path.join("mods")),
 				false => bail!("path is not a directory: {}", path.display()),
 			};
 		}
