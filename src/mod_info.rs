@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
 pub struct ModInfo {
 	pub name: String,
 	pub id: String,
@@ -9,10 +11,12 @@ pub struct ModInfo {
 	pub updates: Option<ModUpdatesInfo>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct ModAutoloadInfo {
 	pub data: HashMap<String, String>
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct ModUpdatesInfo {
 	pub modworkshop: u32,
 }
