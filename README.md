@@ -56,22 +56,6 @@ vmb install MyFirstMod.vmz
 vmb install .
 ```
 
-## Example
-```shell
-# Initialize a mod directory with git repository
-vmb init "My First Mod"
-cd "My First Mod"
-
-# Package the mod directory into a .vmz archive
-vmb pack -o MyFirstMod.vmz ./mods ./mod.txt
-# Modify the mod's parameters (e.g., name, version, priority)
-vmb modify -n "My First Custom Mod" -i "my-first-mod-id" -p 10 -v 1.0.0 -u 12345
-# Install the mod from the .vmz archive to the detected mods directory
-vmb install MyFirstMod.vmz
-# Alternatively, install the mod directly from the mod directory
-vmb install .
-```
-
 ## Building
 
 To build the tool and install it globally, run:
