@@ -50,7 +50,7 @@ pub(crate) enum Command {
 		id: Option<String>,
 		/// Priority for the mod used in the mod loader
 		#[arg(short, long)]
-		priority: Option<u32>,
+		priority: Option<i32>,
 		/// Semver formatted version
 		#[arg(short = 'v')]
 		version: Option<Version>,
@@ -74,7 +74,7 @@ pub(crate) enum Command {
 		id: Option<String>,
 		/// Priority for the mod used in the mod loader
 		#[arg(short, long)]
-		priority: Option<u32>,
+		priority: Option<i32>,
 		/// Semver formatted version
 		#[arg(short = 'v')]
 		version: Option<Version>,
