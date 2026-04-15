@@ -60,4 +60,8 @@ if you are in the root directory of the project, you can run:
 ```shell
 cargo install --path .
 ```
+or straight from the git repository:
+```shell
+cargo install --locked --git https://github.com/ScriptExec/vmb
+```
 
