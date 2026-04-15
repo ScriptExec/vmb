@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::SystemTime;
@@ -435,8 +435,50 @@ impl Vmb {
 	fn print_log_file(path: &Path) -> Result<()> {
 		let bytes = fs::read(path)
 			.with_context(|| format!("failed to read log file {}", path.display()))?;
-		println!("{}", String::from_utf8_lossy(&bytes));
+		let text = String::from_utf8_lossy(&bytes);
+
+		if !std::io::stdout().is_terminal() {
+			print!("{}", text);
+			return Ok(());
+		}
+
+		for line in text.split_inclusive('\n') {
+			print!("{}", Self::colorize_log_line(line));
+		}
 		Ok(())
+	}
+
+	fn colorize_log_line(line: &str) -> String {
+		const ERROR_FLAGS: &[&str] = &["SCRIPT ERROR:", "ERROR:", "[ModLoader][Critical]"];
+		const WARNING_FLAGS: &[&str] = &["WARNING:", "[ModLoader][Warning]"];
+		const INFO_FLAGS: &[&str] = &["INFO:", "[ModLoader][Info]"];
+		const TRACE_FLAGS: &[&str] = &["[ModLoader][Debug]"];
+
+		for flag in ERROR_FLAGS {
+			if let Some(rest) = line.strip_prefix(flag) {
+				return format!("{}{}", console::style(flag).red().bold(), rest);
+			}
+		}
+
+		for flag in WARNING_FLAGS {
+			if let Some(rest) = line.strip_prefix(flag) {
+				return format!("{}{}", console::style(flag).yellow().bold(), rest);
+			}
+		}
+
+		for flag in INFO_FLAGS {
+			if let Some(rest) = line.strip_prefix(flag) {
+				return format!("{}{}", console::style(flag).cyan(), rest);
+			}
+		}
+
+		for flag in TRACE_FLAGS {
+			if let Some(rest) = line.strip_prefix(flag) {
+				return format!("{}{}", console::style(flag).black().bright(), rest);
+			}
+		}
+
+		line.to_string()
 	}
 
 	fn is_log_event(event: &Event, log_file: &Path) -> bool {

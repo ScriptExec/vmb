@@ -1,3 +1,9 @@
+# Version 0.2.1
+
+## Features
+- Added `log` subcommand output colorization for log flags (e.g., INFO, WARNING, ERROR)
+- Added support for negative priority values in `modify` subcommand, allowing mod developers to set lower priority
+
 # Version 0.2.0
 This release introduces several new features and improvements
 
