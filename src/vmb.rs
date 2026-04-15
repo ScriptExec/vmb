@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{mpsc, OnceLock};
 use std::time::SystemTime;
 
 use crate::mod_info::{ModInfo, ModInfoOverride};
@@ -11,6 +11,7 @@ use anyhow::{bail, Context, Result};
 use directories::BaseDirs;
 use git2::Repository;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use regex::Regex;
 use tempfile::TempDir;
 use time::OffsetDateTime;
 use walkdir::WalkDir;
@@ -465,35 +466,47 @@ impl Vmb {
 	}
 
 	fn colorize_log_line(line: &str) -> String {
-		const ERROR_FLAGS: &[&str] = &["SCRIPT ERROR:", "ERROR:", "[ModLoader][Critical]"];
-		const WARNING_FLAGS: &[&str] = &["WARNING:", "[ModLoader][Warning]"];
-		const INFO_FLAGS: &[&str] = &["INFO:", "[ModLoader][Info]"];
-		const TRACE_FLAGS: &[&str] = &["[ModLoader][Debug]"];
-
-		for flag in ERROR_FLAGS {
-			if let Some(rest) = line.strip_prefix(flag) {
-				return format!("{}{}", console::style(flag).red().bold(), rest);
-			}
+		#[allow(unused)]
+		enum LogFlagStyle {
+			Info,
+			Warning,
+			Error,
+			Trace,
+			Stack,
 		}
 
-		for flag in WARNING_FLAGS {
-			if let Some(rest) = line.strip_prefix(flag) {
-				return format!("{}{}", console::style(flag).yellow().bold(), rest);
+		static RULES: OnceLock<Vec<(Regex, LogFlagStyle)>> = OnceLock::new();
+		let rules = RULES.get_or_init(|| {
+			vec![
+				(Regex::new(r"(?i)^(\[.+\])*\[(info)\]").unwrap(), LogFlagStyle::Info),
+				(Regex::new(r"(?i)^(\[.+\])\s*info:").unwrap(), LogFlagStyle::Info),
+				(Regex::new(r"(?i)^(\[.+\])*\[(warning)\]").unwrap(), LogFlagStyle::Warning),
+				(Regex::new(r"(?i)^(\[.+\])*\s*warning:").unwrap(), LogFlagStyle::Warning),
+				(Regex::new(r"(?i)^(\[.+\])*\[(error|critical)\]").unwrap(), LogFlagStyle::Error),
+				(Regex::new(r"(?i)^(\[.+\])*\s*(error|critical|script error):").unwrap(), LogFlagStyle::Error),
+				(Regex::new(r"(?i)^(\[.+\])*\[(debug)\]").unwrap(), LogFlagStyle::Trace),
+				(Regex::new(r"(?i)^(\[.+\])*\s*debug:").unwrap(), LogFlagStyle::Trace),
+				(Regex::new(r"^[^\S\r\n]{3,}at:\s+.*").unwrap(), LogFlagStyle::Stack),
+			]
+		});
+
+		for (rule, style) in rules {
+			if let Some(matched) = rule.find(line) {
+				if matched.start() != 0 {
+					continue;
+				}
+
+				let (flag, rest) = line.split_at(matched.end());
+				let styled_flag = match style {
+					LogFlagStyle::Error => console::style(flag).red().bold(),
+					LogFlagStyle::Warning => console::style(flag).yellow().bold(),
+					LogFlagStyle::Info => console::style(flag).cyan(),
+					LogFlagStyle::Trace => console::style(flag).black().bright(),
+					LogFlagStyle::Stack => console::style(flag).black().bright(),
+				};
+				return format!("{}{}", styled_flag, rest);
 			}
 		}
-
-		for flag in INFO_FLAGS {
-			if let Some(rest) = line.strip_prefix(flag) {
-				return format!("{}{}", console::style(flag).cyan(), rest);
-			}
-		}
-
-		for flag in TRACE_FLAGS {
-			if let Some(rest) = line.strip_prefix(flag) {
-				return format!("{}{}", console::style(flag).black().bright(), rest);
-			}
-		}
-
 		line.to_string()
 	}
 
