@@ -3,6 +3,7 @@
 ## Features
 - Added `log` subcommand output colorization for log flags (e.g., INFO, WARNING, ERROR)
 - Added support for negative priority values in `modify` subcommand, allowing mod developers to set lower priority
+- Added `.gitignore` file generation to `init` subcommand if the user doesn't specify `--no-git`
 
 # Version 0.2.0
 This release introduces several new features and improvements
