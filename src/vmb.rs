@@ -44,6 +44,11 @@ impl Vmb {
 		let mod_safe_name = to_safe_name(&mod_name);
 
 		let main_gd_template = Self::load_template("Main.gd")?;
+		let gitignore_template = if no_git {
+			None
+		} else {
+			Some(Self::load_template(".gitignore")?)
+		};
 
 		fs::create_dir_all(&mod_path).with_context(|| {
 			format!(
@@ -54,6 +59,7 @@ impl Vmb {
 
 		let mod_info_path = mod_path.join("mod.txt");
 		let main_gd_path = mod_path.join("mods").join(&mod_safe_name).join("Main.gd");
+		let gitignore_path = mod_path.join(".gitignore");
 
 		if mod_info_path.exists() {
 			bail!(
@@ -89,6 +95,16 @@ impl Vmb {
 				"git repository initialization (\"--no-git\" specified)",
 			);
 		} else {
+			if !gitignore_path.exists() {
+				fs::write(&gitignore_path, gitignore_template.unwrap())
+					.with_context(|| format!("failed to write {}", gitignore_path.display()))?;
+			} else {
+				print_status(
+					"Skipping",
+					format!("{} already exists", gitignore_path.display()),
+				);
+			}
+
 			Self::init_git_repo(&mod_path)?;
 		}
 
