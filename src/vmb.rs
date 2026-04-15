@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{IsTerminal, Read, Write};
+use std::io::{IsTerminal, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, OnceLock};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use crate::mod_info::{ModInfo, ModInfoOverride};
 use crate::util::{derive_dir_name, print_status, to_safe_name, to_skewer_case};
@@ -22,6 +23,40 @@ use zip::DateTime;
 include!(concat!(env!("OUT_DIR"), "/generated_templates.rs"));
 
 pub struct Vmb;
+
+struct AltTermBufferGuard {
+	enabled: bool,
+}
+
+impl AltTermBufferGuard {
+	fn enter() -> Result<Self> {
+		if !std::io::stdout().is_terminal() {
+			return Ok(Self { enabled: false });
+		}
+
+		let mut stdout = std::io::stdout();
+		stdout
+			.write_all(b"\x1b[?1049h\x1b[2J\x1b[H")
+			.context("failed to switch to alternate screen buffer")?;
+		stdout
+			.flush()
+			.context("failed to flush stdout after entering alternate screen")?;
+
+		Ok(Self { enabled: true })
+	}
+}
+
+impl Drop for AltTermBufferGuard {
+	fn drop(&mut self) {
+		if !self.enabled {
+			return;
+		}
+
+		let mut stdout = std::io::stdout();
+		let _ = stdout.write_all(b"\x1b[?1049l");
+		let _ = stdout.flush();
+	}
+}
 
 impl Vmb {
 	const VOSTOK_APP_ID: i32 = 1963610;
@@ -452,17 +487,35 @@ impl Vmb {
 	fn print_log_file(path: &Path) -> Result<()> {
 		let bytes = fs::read(path)
 			.with_context(|| format!("failed to read log file {}", path.display()))?;
-		let text = String::from_utf8_lossy(&bytes);
+		Self::print_log_bytes(&bytes);
+		Ok(())
+	}
+
+	fn print_log_file_from_offset(path: &Path, offset: u64) -> Result<u64> {
+		let mut file = File::open(path)
+			.with_context(|| format!("failed to open log file {}", path.display()))?;
+		file.seek(SeekFrom::Start(offset))
+			.with_context(|| format!("failed to seek log file {}", path.display()))?;
+
+		let mut bytes = Vec::new();
+		file.read_to_end(&mut bytes)
+			.with_context(|| format!("failed to read log file {}", path.display()))?;
+
+		Self::print_log_bytes(&bytes);
+		Ok(bytes.len() as u64)
+	}
+
+	fn print_log_bytes(bytes: &[u8]) {
+		let text = String::from_utf8_lossy(bytes);
 
 		if !std::io::stdout().is_terminal() {
 			print!("{}", text);
-			return Ok(());
+			return;
 		}
 
 		for line in text.split_inclusive('\n') {
 			print!("{}", Self::colorize_log_line(line));
 		}
-		Ok(())
 	}
 
 	fn colorize_log_line(line: &str) -> String {
@@ -536,7 +589,23 @@ impl Vmb {
         )
 	}
 
+	fn ctrl_c_flag() -> std::sync::Arc<AtomicBool> {
+		static CTRL_C_FLAG: OnceLock<std::sync::Arc<AtomicBool>> = OnceLock::new();
+		let flag = CTRL_C_FLAG.get_or_init(|| {
+			let flag = std::sync::Arc::new(AtomicBool::new(false));
+			let signal_flag = std::sync::Arc::clone(&flag);
+			let _ = ctrlc::set_handler(move || {
+				signal_flag.store(true, Ordering::SeqCst);
+			});
+			flag
+		});
+
+		std::sync::Arc::clone(flag)
+	}
+
 	pub fn log(watch: bool) -> Result<()> {
+		let _alt_screen = AltTermBufferGuard::enter()?;
+
 		let log_dir =
 			Self::vostok_log_path().context("failed to locate Road to Vostok log directory")?;
 		let log_file = log_dir.join(Self::LOG_NAME);
@@ -566,33 +635,45 @@ impl Vmb {
 			format!("{} (Ctrl+C to stop)", log_file.display()),
 		);
 
-		let mut last_state = Some(Self::read_log_state(&log_file)?);
+		let ctrl_c_flag = Self::ctrl_c_flag();
+		ctrl_c_flag.store(false, Ordering::SeqCst);
+
+		let mut read_offset = fs::metadata(&log_file).map(|meta| meta.len()).unwrap_or(0);
 		let mut was_missing = false;
 
 		loop {
-			match rx
-				.recv()
-				.context("failed to receive file change notification")?
-			{
-				Ok(event) => {
+			if ctrl_c_flag.load(Ordering::SeqCst) {
+				break;
+			}
+
+			match rx.recv_timeout(Duration::from_millis(250)) {
+				Err(mpsc::RecvTimeoutError::Timeout) => continue,
+				Err(mpsc::RecvTimeoutError::Disconnected) => {
+					bail!("filesystem watcher channel disconnected")
+				}
+				Ok(Ok(event)) => {
 					if !Self::should_refresh_log(&event, &log_file) {
 						continue;
 					}
 
 					match Self::read_log_state(&log_file) {
-						Ok(state) => {
-							let changed = Some(state) != last_state || was_missing;
-							last_state = Some(state);
+						Ok((len, _)) => {
+							if len < read_offset {
+								// File was truncated/rotated; start reading from beginning again.
+								read_offset = 0;
+							}
 
-							if changed {
+							if len > read_offset || was_missing {
 								was_missing = false;
 								println!();
 								print_status("Updated", log_file.display().to_string());
-								Self::print_log_file(&log_file)?;
+
+								let appended = Self::print_log_file_from_offset(&log_file, read_offset)?;
+								read_offset += appended;
 							}
 						}
 						Err(_) => {
-							last_state = None;
+							read_offset = 0;
 							if !was_missing {
 								print_status(
 									"Info",
@@ -606,11 +687,13 @@ impl Vmb {
 						}
 					}
 				}
-				Err(err) => {
+				Ok(Err(err)) => {
 					print_status("Info", format!("watch error: {err}"));
 				}
 			}
 		}
+
+		Ok(())
 	}
 
 	pub fn modify(mod_path: &Path, mod_info: &mut ModInfo, mod_info_override: ModInfoOverride, silent: bool, overwrite: bool) -> Result<()> {

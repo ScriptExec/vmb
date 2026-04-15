@@ -31,6 +31,7 @@ semver = { version = "1.0.28", features = ["serde"] }
 directories = "6.0.0"
 notify = "8.2.0"
 regex = "1.12.3"
+ctrlc = "3.5.2"
 
 [profile.release]
 opt-level = "z"
