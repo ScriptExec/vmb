@@ -1,4 +1,4 @@
-# Version 0.2.1
+# Version 0.3.0
 
 ## Features
 - Added `log` subcommand output colorization for log flags (e.g., INFO, WARNING, ERROR)
