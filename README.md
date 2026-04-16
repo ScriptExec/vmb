@@ -1,4 +1,8 @@
-# Vostok Mod Builder
+<h1 style="display: flex; align-items: center; gap: 5px; margin: 0;">
+  <img src="./resources/logo.png" width="55" alt="Vostok Mod Builder Logo" style="vertical-align: middle; margin-right: 8px;" />
+  Vostok Mod Builder
+</h1>
+
 This tool provides a simple CLI for mod developers, used to package and install mods for [Road to Vostok](https://store.steampowered.com/app/1963610/Road_to_Vostok/).
 
 ### This tool supports:
