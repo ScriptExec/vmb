@@ -1,5 +1,5 @@
-<h1 style="display: flex; align-items: center; gap: 5px; margin: 0;">
-  <img src="./resources/logo.png" width="55" alt="Vostok Mod Builder Logo" style="vertical-align: middle; margin-right: 8px;" />
+<h1>
+  <img src="./resources/logo.png" width="42" alt="Vostok Mod Builder Logo" />
   Vostok Mod Builder
 </h1>
 
