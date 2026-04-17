@@ -655,7 +655,11 @@ impl Vmb {
 	}
 
 	pub fn log(watch: bool) -> Result<()> {
-		let _alt_screen = AltTermBufferGuard::enter()?;
+		let _alt_screen = if watch {
+			Some(AltTermBufferGuard::enter()?)
+		} else {
+			None
+		};
 
 		let log_dir =
 			Self::vostok_log_path().context("failed to locate Road to Vostok log directory")?;
