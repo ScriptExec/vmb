@@ -21,6 +21,7 @@ Commands:
   pack     Package one or more files/directories into a .vmz archive
   install  Install a [.zip|.vmz] archive or a mod root directory into an auto-detected or provided directory
   log      Displays the latest output log (if available)
+  run      Runs the game and streams the log output
   help     Print this message or the help of the given subcommand(s)
 
 Options:
@@ -52,6 +53,11 @@ vmb modify -n "My First Custom Mod" -i "my-first-mod-id" -p 10 -v 1.0.0 -u 12345
 vmb install MyFirstMod.vmz
 # Alternatively, install the mod directly from the mod directory
 vmb install .
+
+# Run the game and stream log output
+vmb run
+# Run with explicit rendering API [vk, dx12] and pass additional arguments to the game
+vmb run --api vk -- --some-arg
 ```
 
 ## Building

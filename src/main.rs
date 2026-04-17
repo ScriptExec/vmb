@@ -2,6 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 
 mod cli;
+mod game_wrapper;
+mod rendering_api;
 mod util;
 pub mod vmb;
 pub mod mod_info;

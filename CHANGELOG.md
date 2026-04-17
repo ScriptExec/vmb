@@ -4,6 +4,7 @@
 - Added `log` subcommand output colorization for log flags (e.g., INFO, WARNING, ERROR)
 - Added support for negative priority values in `modify` subcommand, allowing mod developers to set lower priority
 - Added `.gitignore` file generation to `init` subcommand if the user doesn't specify `--no-git`
+- Added `run` subcommand which launches the game and streams the log output
 
 ## Changes
 - Updated `log` subcommand with the `--watch` option to use an alternate buffer for printing

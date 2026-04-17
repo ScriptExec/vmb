@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, OnceLock};
 use std::time::{Duration, SystemTime};
 
+use crate::game_wrapper::GameWrapper;
 use crate::mod_info::{ModInfo, ModInfoOverride};
+use crate::rendering_api::RenderingAPI;
 use crate::util::{derive_dir_name, print_status, to_safe_name, to_skewer_case};
 use anyhow::{bail, Context, Result};
 use directories::BaseDirs;
@@ -62,9 +64,9 @@ impl Vmb {
 	const VOSTOK_APP_ID: i32 = 1963610;
 	const VOSTOK_APP_NAME: &'static str = "Road to Vostok";
 	const WINDOWS_DEFAULT_EXE_PATH: &'static str =
-		"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Road to Vostok\\RTV.exe";
+		"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Road to Vostok\\";
 	const LINUX_DEFAULT_EXE_PATH: &'static str =
-		"~/.steam/steam/steamapps/common/Road to Vostok/RTV.x86_64";
+		"~/.steam/steam/steamapps/common/Road to Vostok/";
 	const LOG_NAME: &str = "godot.log";
 
 	fn load_template(name: &str) -> Result<&str> {
@@ -444,7 +446,51 @@ impl Vmb {
 			PathBuf::from(Self::WINDOWS_DEFAULT_EXE_PATH)
 		} else {
 			PathBuf::from(Self::LINUX_DEFAULT_EXE_PATH)
+		}.join(Self::default_vostok_exe_name())
+	}
+
+	fn default_vostok_exe_name() -> &'static str {
+		if cfg!(windows) {
+			"RTV.exe"
+		} else {
+			"RTV.x86_64"
 		}
+	}
+
+	fn resolve_exe_path(exe_path: Option<PathBuf>) -> Result<PathBuf> {
+		if let Some(path) = exe_path {
+			if path.is_file() {
+				return Ok(path);
+			}
+			bail!("executable path does not exist or is not a file: {}", path.display());
+		}
+
+		if let Some(vostok_path) = std::env::var_os("VOSTOK_PATH") {
+			let path = PathBuf::from(vostok_path);
+			let candidate = if path.is_dir() {
+				path.join(Self::default_vostok_exe_name())
+			} else {
+				path
+			};
+
+			if candidate.is_file() {
+				return Ok(candidate);
+			}
+
+			bail!(
+				"failed to resolve executable from VOSTOK_PATH: {}",
+				candidate.display()
+			);
+		}
+
+		let default_exe = Self::vostok_exe_path();
+		if default_exe.is_file() {
+			return Ok(default_exe);
+		}
+
+		bail!(
+			"failed to locate Road to Vostok executable; try setting VOSTOK_PATH"
+		)
 	}
 
 	fn vostok_data_path() -> Option<PathBuf> {
@@ -698,6 +744,25 @@ impl Vmb {
 			}
 		}
 
+		Ok(())
+	}
+
+	pub fn run(exe_path: Option<PathBuf>, api: Option<RenderingAPI>, args: Vec<String>) -> Result<()> {
+		let exe_path = Self::resolve_exe_path(exe_path)?;
+		let mut launch_args = args;
+		if let Some(api) = api {
+			launch_args.push("--rendering-driver".to_string());
+			launch_args.push(api.as_driver_name().to_string());
+		}
+
+		let display_cmd = if launch_args.is_empty() {
+			exe_path.display().to_string()
+		} else {
+			format!("{} {}", exe_path.display(), launch_args.join(" "))
+		};
+		print_status("Running", display_cmd);
+
+		GameWrapper::new(exe_path, launch_args).run(Self::ctrl_c_flag(), Self::print_log_bytes)?;
 		Ok(())
 	}
 

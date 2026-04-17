@@ -1,4 +1,5 @@
 use crate::mod_info::{ModInfo, ModInfoOverride, ModUpdatesInfo};
+use crate::rendering_api::RenderingAPI;
 use crate::util::derive_dir_name;
 use crate::vmb::Vmb;
 use anyhow::bail;
@@ -102,8 +103,17 @@ pub(crate) enum Command {
 	/// Displays the latest output log (if available)
 	Log {
 		/// Watches for changes to the output log
-		#[arg(long = "watch")]
+		#[arg(short, long)]
 		watch: bool,
+	},
+	/// Runs the game and streams the log output
+	Run {
+		/// Rendering API
+		#[arg(short, long, value_enum)]
+		api: Option<RenderingAPI>,
+		/// Additional arguments passed to the game executable
+		#[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+		args: Vec<String>,
 	},
 }
 
@@ -170,6 +180,10 @@ impl Cli {
 			Command::Pack { output, inputs } => Vmb::pack(output, inputs),
 			Command::Install { source, path } => Vmb::install(source, path),
 			Command::Log { watch } => Vmb::log(watch),
+			Command::Run {
+				api,
+				args,
+			} => Vmb::run(None, api, args),
 		}
 	}
 }
