@@ -535,14 +535,14 @@ impl Vmb {
 		Ok((metadata.len(), metadata.modified().ok()))
 	}
 
-	fn print_log_file(path: &Path) -> Result<()> {
+	fn print_log(path: &Path) -> Result<()> {
 		let bytes = fs::read(path)
 			.with_context(|| format!("failed to read log file {}", path.display()))?;
 		Self::print_log_bytes(&bytes);
 		Ok(())
 	}
 
-	fn print_log_file_from_offset(path: &Path, offset: u64) -> Result<u64> {
+	fn print_log_from_offset(path: &Path, offset: u64) -> Result<u64> {
 		let mut file = File::open(path)
 			.with_context(|| format!("failed to open log file {}", path.display()))?;
 		file.seek(SeekFrom::Start(offset))
@@ -670,7 +670,7 @@ impl Vmb {
 		}
 
 		print_status("Reading", log_file.display().to_string());
-		Self::print_log_file(&log_file)?;
+		Self::print_log(&log_file)?;
 
 		if !watch {
 			return Ok(());
@@ -723,7 +723,7 @@ impl Vmb {
 								println!();
 								print_status("Updated", log_file.display().to_string());
 
-								let appended = Self::print_log_file_from_offset(&log_file, read_offset)?;
+								let appended = Self::print_log_from_offset(&log_file, read_offset)?;
 								read_offset += appended;
 							}
 						}
