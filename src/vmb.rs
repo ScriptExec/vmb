@@ -297,10 +297,15 @@ impl Vmb {
 	}
 
 	fn install_archive(archive: &Path, target_dir: &Path) -> Result<()> {
+
 		let file_name = archive
 			.file_name()
 			.context("archive path has no file name")?;
-		let destination = target_dir.join(file_name);
+
+		let mut destination = target_dir.join(file_name);
+		if let Some(ext) = archive.extension() && ext == "zip" {
+			destination.set_extension("vmz");
+		}
 
 		fs::copy(&archive, &destination).with_context(|| {
 			format!(
