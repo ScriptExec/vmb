@@ -5,6 +5,10 @@
 - Added support for negative priority values in `modify` subcommand, allowing mod developers to set lower priority
 - Added `.gitignore` file generation to `init` subcommand if the user doesn't specify `--no-git`
 
+## Changes
+- Updated `log` subcommand with the `--watch` option to use an alternate buffer for printing
+- Updated `zip` files to change the extension to `.vmz` when installing
+
 # Version 0.2.0
 This release introduces several new features and improvements
 
