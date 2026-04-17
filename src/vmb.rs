@@ -21,7 +21,7 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
 use zip::DateTime;
-use crate::alt_term_buffer_guard::AltTermBufferGuard;
+use crate::scoped_term_buffer::ScopedTermBuffer;
 
 include!(concat!(env!("OUT_DIR"), "/generated_templates.rs"));
 
@@ -623,7 +623,7 @@ impl Vmb {
 
 	pub fn log(watch: bool) -> Result<()> {
 		let _alt_screen = if watch {
-			Some(AltTermBufferGuard::enter()?)
+			Some(ScopedTermBuffer::enter()?)
 		} else {
 			None
 		};

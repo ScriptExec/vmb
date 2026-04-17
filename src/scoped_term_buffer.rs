@@ -1,11 +1,11 @@
 use std::io::{IsTerminal, Write};
 use anyhow::Context;
 
-pub struct AltTermBufferGuard {
+pub struct ScopedTermBuffer {
 	enabled: bool,
 }
 
-impl AltTermBufferGuard {
+impl ScopedTermBuffer {
 	pub fn enter() -> anyhow::Result<Self> {
 		if !std::io::stdout().is_terminal() {
 			return Ok(Self { enabled: false });
@@ -23,7 +23,7 @@ impl AltTermBufferGuard {
 	}
 }
 
-impl Drop for AltTermBufferGuard {
+impl Drop for ScopedTermBuffer {
 	fn drop(&mut self) {
 		if !self.enabled {
 			return;
