@@ -21,44 +21,11 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
 use zip::DateTime;
+use crate::alt_term_buffer_guard::AltTermBufferGuard;
 
 include!(concat!(env!("OUT_DIR"), "/generated_templates.rs"));
 
 pub struct Vmb;
-
-struct AltTermBufferGuard {
-	enabled: bool,
-}
-
-impl AltTermBufferGuard {
-	fn enter() -> Result<Self> {
-		if !std::io::stdout().is_terminal() {
-			return Ok(Self { enabled: false });
-		}
-
-		let mut stdout = std::io::stdout();
-		stdout
-			.write_all(b"\x1b[?1049h\x1b[2J\x1b[H")
-			.context("failed to switch to alternate screen buffer")?;
-		stdout
-			.flush()
-			.context("failed to flush stdout after entering alternate screen")?;
-
-		Ok(Self { enabled: true })
-	}
-}
-
-impl Drop for AltTermBufferGuard {
-	fn drop(&mut self) {
-		if !self.enabled {
-			return;
-		}
-
-		let mut stdout = std::io::stdout();
-		let _ = stdout.write_all(b"\x1b[?1049l");
-		let _ = stdout.flush();
-	}
-}
 
 impl Vmb {
 	const VOSTOK_APP_ID: i32 = 1963610;

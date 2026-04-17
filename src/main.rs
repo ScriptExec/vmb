@@ -7,6 +7,7 @@ mod rendering_api;
 mod util;
 pub mod vmb;
 pub mod mod_info;
+pub mod alt_term_buffer_guard;
 
 use crate::cli::Cli;
 use crate::util::print_error;
