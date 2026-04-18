@@ -37,7 +37,9 @@ For more help on a specific command, run `vmb <COMMAND> --help` or `vmb help <CO
 
 1. `VOSTOK_PATH` (expects the game installation path; installs to `<VOSTOK_PATH>/mods`)
 1. Optional `path` argument
-1. On Windows, `C:\Program Files (x86)\Steam\steamapps\common\Road to Vostok\` when present
+1. Default platform-specific paths:
+   - On Windows, `C:\Program Files (x86)\Steam\steamapps\common\Road to Vostok\` when present
+   - On Linux, `~/.steam/steam/steamapps/common/Road to Vostok/` when present
 
 ## Example
 ```shell
