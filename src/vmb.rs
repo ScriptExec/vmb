@@ -1,6 +1,5 @@
-use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{IsTerminal, Read, Seek, SeekFrom, Write};
+use std::io::{IsTerminal, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, OnceLock};
@@ -8,6 +7,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::game_wrapper::GameWrapper;
 use crate::mod_info::{ModInfo, ModInfoOverride};
+use crate::mod_package::ModPackage;
 use crate::rendering_api::RenderingAPI;
 use crate::util::{derive_dir_name, print_status, to_safe_name, to_skewer_case};
 use anyhow::{bail, Context, Result};
@@ -16,11 +16,6 @@ use git2::Repository;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use regex::Regex;
 use tempfile::TempDir;
-use time::OffsetDateTime;
-use walkdir::WalkDir;
-use zip::write::SimpleFileOptions;
-use zip::CompressionMethod;
-use zip::DateTime;
 use crate::scoped_term_buffer::ScopedTermBuffer;
 
 include!(concat!(env!("OUT_DIR"), "/generated_templates.rs"));
@@ -42,6 +37,16 @@ impl Vmb {
 			.get(name)
 			.with_context(|| format!("Template not found: {}", name))
 			.copied()
+	}
+
+	fn replace_macros(template: &str, mod_name: &str) -> String {
+		let mod_safe_name = to_safe_name(mod_name);
+		let mod_id = to_skewer_case(mod_name);
+
+		template
+			.replace("${MOD_NAME}", mod_name)
+			.replace("${MOD_SAFE_NAME}", &mod_safe_name)
+			.replace("${MOD_ID}", &mod_id)
 	}
 
 	pub fn init(mod_path: PathBuf, no_git: bool, mod_info: ModInfo) -> Result<()> {
@@ -90,7 +95,7 @@ impl Vmb {
 
 		fs::write(
 			&main_gd_path,
-			Self::replace_macros(main_gd_template, &mod_name),
+			Self::replace_macros(main_gd_template, &mod_name)
 		)
 			.with_context(|| format!("failed to write {}", main_gd_path.display()))?;
 
@@ -140,76 +145,14 @@ impl Vmb {
 	}
 
 	pub fn pack(output: PathBuf, inputs: Vec<PathBuf>) -> Result<()> {
-		let output = Self::enforce_extension(output, "vmz");
-
-		if inputs.is_empty() {
-			bail!("at least one input file or directory is required");
-		}
-
-		if let Some(parent) = output.parent() {
-			if !parent.as_os_str().is_empty() {
-				fs::create_dir_all(parent).with_context(|| {
-					format!("failed to create output directory: {}", parent.display())
-				})?;
-			}
-		}
-
-		let out_file = File::create(&output)
-			.with_context(|| format!("failed to create archive: {}", output.display()))?;
-		let mut writer = zip::ZipWriter::new(out_file);
-		let mut used_names = HashSet::new();
-
-		for input in inputs {
-			if !input.exists() {
-				bail!("input path does not exist: {}", input.display());
-			}
-
-			if input.is_file() {
-				let file_name = input
-					.file_name()
-					.and_then(|n| n.to_str())
-					.map(str::to_owned)
-					.with_context(|| format!("invalid file name: {}", input.display()))?;
-
-				Self::add_file_to_zip(
-					&mut writer,
-					&input,
-					&file_name,
-					CompressionMethod::Deflated,
-					&mut used_names,
-				)?;
-				continue;
-			}
-
-			let root_name = input
-				.file_name()
-				.and_then(|n| n.to_str())
-				.map(str::to_owned)
-				.unwrap_or_else(|| "root".to_string());
-
-			for entry in WalkDir::new(&input).into_iter().filter_map(|e| e.ok()) {
-				let path = entry.path();
-				if path.is_dir() {
-					continue;
-				}
-
-				let rel = path.strip_prefix(&input).with_context(|| {
-					format!("failed to compute relative path for {}", path.display())
-				})?;
-				let archive_name = Self::path_to_zip_name(Path::new(&root_name).join(rel));
-				Self::add_file_to_zip(
-					&mut writer,
-					path,
-					&archive_name,
-					CompressionMethod::Deflated,
-					&mut used_names,
-				)?;
-			}
-		}
-
-		writer.finish().context("failed to finalize archive")?;
-		print_status("Created", output.display().to_string());
-		Ok(())
+		let mod_name = output
+			.file_stem()
+			.and_then(|name| name.to_str())
+			.map(str::to_owned)
+			.unwrap_or_else(|| "mod".to_string());
+		let mut package = ModPackage::new(ModInfo::default_from(mod_name));
+		package.set_files(inputs);
+		package.pack(output)
 	}
 
 	pub fn install(source: PathBuf, path: Option<PathBuf>) -> Result<()> {
@@ -326,87 +269,6 @@ impl Vmb {
 		Ok(parent.join("mods"))
 	}
 
-	fn replace_macros(template: &str, mod_name: &str) -> String {
-		let mod_safe_name = to_safe_name(mod_name);
-		let mod_id = to_skewer_case(mod_name);
-
-		template
-			.replace("${MOD_NAME}", mod_name)
-			.replace("${MOD_SAFE_NAME}", &mod_safe_name)
-			.replace("${MOD_ID}", &mod_id)
-	}
-
-	fn add_file_to_zip(
-		writer: &mut zip::ZipWriter<File>,
-		source_path: &Path,
-		archive_name: &str,
-		compression_method: CompressionMethod,
-		used_names: &mut HashSet<String>,
-	) -> Result<()> {
-		if !used_names.insert(archive_name.to_string()) {
-			bail!("duplicate archive entry: {archive_name}");
-		}
-
-		let timestamp = Self::resolve_zip_datetime(source_path)?;
-		let options = SimpleFileOptions::default()
-			.compression_method(compression_method)
-			.last_modified_time(timestamp);
-
-		writer
-			.start_file(archive_name, options)
-			.with_context(|| format!("failed to start zip entry: {archive_name}"))?;
-
-		let mut file = File::open(source_path)
-			.with_context(|| format!("failed to open source file: {}", source_path.display()))?;
-		let mut buffer = Vec::new();
-		file.read_to_end(&mut buffer)
-			.with_context(|| format!("failed to read source file: {}", source_path.display()))?;
-		writer
-			.write_all(&buffer)
-			.with_context(|| format!("failed to write zip entry: {archive_name}"))?;
-		Ok(())
-	}
-
-	fn resolve_zip_datetime(source_path: &Path) -> Result<DateTime> {
-		let modified = fs::metadata(source_path)
-			.and_then(|meta| meta.modified())
-			.unwrap_or_else(|_| SystemTime::now());
-
-		Ok(Self::sys_time_to_zip_datetime(modified))
-	}
-
-	fn sys_time_to_zip_datetime(system_time: SystemTime) -> DateTime {
-		let dt = OffsetDateTime::from(system_time);
-
-		DateTime::from_date_and_time(
-			dt.year() as u16,
-			dt.month() as u8,
-			dt.day(),
-			dt.hour(),
-			dt.minute(),
-			dt.second(),
-		)
-			.unwrap_or_default()
-	}
-
-	fn enforce_extension(mut path: PathBuf, extension: &str) -> PathBuf {
-		let ext = path
-			.extension()
-			.and_then(|e| e.to_str())
-			.map(|e| e.eq_ignore_ascii_case(extension))
-			.unwrap_or(false);
-		if !ext {
-			path.set_extension(extension);
-		}
-		path
-	}
-
-	fn path_to_zip_name(path: PathBuf) -> String {
-		path.components()
-			.map(|c| c.as_os_str().to_string_lossy().to_string())
-			.collect::<Vec<_>>()
-			.join("/")
-	}
 
 	fn vostok_exe_path() -> PathBuf {
 		if cfg!(windows) {
@@ -572,7 +434,7 @@ impl Vmb {
 					LogFlagStyle::Error => console::style(flag).red().bold(),
 					LogFlagStyle::Warning => console::style(flag).yellow().bold(),
 					LogFlagStyle::Info => console::style(flag).cyan(),
-					LogFlagStyle::Trace => console::style(flag).black().bright(),
+					LogFlagStyle::Trace => console::style(flag).magenta(),
 					LogFlagStyle::Stack => console::style(flag).black().bright(),
 				};
 				return format!("{}{}", styled_flag, rest);

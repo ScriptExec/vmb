@@ -8,6 +8,7 @@ mod util;
 pub mod vmb;
 pub mod mod_info;
 pub mod scoped_term_buffer;
+pub mod mod_package;
 
 use crate::cli::Cli;
 use crate::util::print_error;
