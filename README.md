@@ -3,6 +3,10 @@
   Vostok Mod Builder
 </h1>
 
+[![Compile Check](https://img.shields.io/github/actions/workflow/status/ScriptExec/vmb/compile-check.yml?branch=main&label=compilation)](https://github.com/ScriptExec/vmb/actions/workflows/compile-check.yml)
+[![Latest Release](https://img.shields.io/github/v/release/ScriptExec/vmb)](https://github.com/ScriptExec/vmb/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/ScriptExec/vmb/blob/main/LICENSE)
+
 This tool provides a simple CLI for mod developers, used to package and install mods for [Road to Vostok](https://store.steampowered.com/app/1963610/Road_to_Vostok/).
 
 > [!TIP]
