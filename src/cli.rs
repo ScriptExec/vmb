@@ -1,4 +1,5 @@
 use crate::mod_info::{ModInfo, ModInfoOverride, ModUpdatesInfo};
+use crate::rendering_api::RenderingAPI;
 use crate::util::derive_dir_name;
 use crate::vmb::Vmb;
 use anyhow::bail;
@@ -50,7 +51,7 @@ pub(crate) enum Command {
 		id: Option<String>,
 		/// Priority for the mod used in the mod loader
 		#[arg(short, long)]
-		priority: Option<u32>,
+		priority: Option<i32>,
 		/// Semver formatted version
 		#[arg(short = 'v')]
 		version: Option<Version>,
@@ -74,7 +75,7 @@ pub(crate) enum Command {
 		id: Option<String>,
 		/// Priority for the mod used in the mod loader
 		#[arg(short, long)]
-		priority: Option<u32>,
+		priority: Option<i32>,
 		/// Semver formatted version
 		#[arg(short = 'v')]
 		version: Option<Version>,
@@ -87,8 +88,7 @@ pub(crate) enum Command {
 		/// Output archive path (.vmz extension is enforced)
 		#[arg(short, long)]
 		output: PathBuf,
-		/// Files/directories to include
-		#[arg(required = true)]
+		/// Files/directories to include [defaults to ./mod.txt and ./mods when omitted]
 		inputs: Vec<PathBuf>,
 	},
 	/// Install a [.zip|.vmz] archive or a mod root directory into an auto-detected or provided directory
@@ -102,9 +102,30 @@ pub(crate) enum Command {
 	/// Displays the latest output log (if available)
 	Log {
 		/// Watches for changes to the output log
-		#[arg(long = "watch")]
+		#[arg(short, long)]
 		watch: bool,
 	},
+	/// Runs the game and streams the log output
+	Run {
+		/// Rendering API
+		#[arg(short, long, value_enum)]
+		api: Option<RenderingAPI>,
+		/// Additional arguments passed to the game executable
+		#[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+		args: Vec<String>,
+	},
+	/// Self-management commands
+	#[command(name = "self")]
+	SelfCmd {
+		#[command(subcommand)]
+		command: SelfCommand,
+	},
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum SelfCommand {
+	/// Updates the app to the latest release
+	Update,
 }
 
 impl Cli {
@@ -170,6 +191,13 @@ impl Cli {
 			Command::Pack { output, inputs } => Vmb::pack(output, inputs),
 			Command::Install { source, path } => Vmb::install(source, path),
 			Command::Log { watch } => Vmb::log(watch),
+			Command::Run {
+				api,
+				args,
+			} => Vmb::run(None, api, args),
+			Command::SelfCmd { command } => match command {
+				SelfCommand::Update => Vmb::update(),
+			},
 		}
 	}
 }

@@ -1,5 +1,6 @@
 extends Node
 
 func _ready():
-    pass
+    print("Loading ${MOD_NAME}...")
+    queue_free()
 

@@ -1,22 +1,26 @@
-use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{stdout, IsTerminal, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::time::SystemTime;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, OnceLock};
+use std::time::{Duration, SystemTime};
 
+use crate::game_wrapper::GameWrapper;
 use crate::mod_info::{ModInfo, ModInfoOverride};
+use crate::mod_package::ModPackage;
+use crate::progress::default_spinner_style;
+use crate::rendering_api::RenderingAPI;
 use crate::util::{derive_dir_name, print_status, to_safe_name, to_skewer_case};
 use anyhow::{bail, Context, Result};
+use indicatif::ProgressBar;
 use directories::BaseDirs;
 use git2::Repository;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use regex::Regex;
 use tempfile::TempDir;
-use time::OffsetDateTime;
-use walkdir::WalkDir;
-use zip::write::SimpleFileOptions;
-use zip::CompressionMethod;
-use zip::DateTime;
+use self_update::backends::github::Update;
+use self_update::{cargo_crate_version, Status};
+use crate::scoped_term_buffer::ScopedTermBuffer;
 
 include!(concat!(env!("OUT_DIR"), "/generated_templates.rs"));
 
@@ -26,9 +30,9 @@ impl Vmb {
 	const VOSTOK_APP_ID: i32 = 1963610;
 	const VOSTOK_APP_NAME: &'static str = "Road to Vostok";
 	const WINDOWS_DEFAULT_EXE_PATH: &'static str =
-		"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Road to Vostok\\RTV.exe";
+		"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Road to Vostok\\";
 	const LINUX_DEFAULT_EXE_PATH: &'static str =
-		"~/.steam/steam/steamapps/common/Road to Vostok/RTV.x86_64";
+		"~/.steam/steam/steamapps/common/Road to Vostok/";
 	const LOG_NAME: &str = "godot.log";
 
 	fn load_template(name: &str) -> Result<&str> {
@@ -39,11 +43,26 @@ impl Vmb {
 			.copied()
 	}
 
+	fn replace_macros(template: &str, mod_name: &str) -> String {
+		let mod_safe_name = to_safe_name(mod_name);
+		let mod_id = to_skewer_case(mod_name);
+
+		template
+			.replace("${MOD_NAME}", mod_name)
+			.replace("${MOD_SAFE_NAME}", &mod_safe_name)
+			.replace("${MOD_ID}", &mod_id)
+	}
+
 	pub fn init(mod_path: PathBuf, no_git: bool, mod_info: ModInfo) -> Result<()> {
 		let mod_name = derive_dir_name(&mod_path)?;
 		let mod_safe_name = to_safe_name(&mod_name);
 
 		let main_gd_template = Self::load_template("Main.gd")?;
+		let gitignore_template = if no_git {
+			None
+		} else {
+			Some(Self::load_template(".gitignore")?)
+		};
 
 		fs::create_dir_all(&mod_path).with_context(|| {
 			format!(
@@ -54,6 +73,7 @@ impl Vmb {
 
 		let mod_info_path = mod_path.join("mod.txt");
 		let main_gd_path = mod_path.join("mods").join(&mod_safe_name).join("Main.gd");
+		let gitignore_path = mod_path.join(".gitignore");
 
 		if mod_info_path.exists() {
 			bail!(
@@ -79,7 +99,7 @@ impl Vmb {
 
 		fs::write(
 			&main_gd_path,
-			Self::replace_macros(main_gd_template, &mod_name),
+			Self::replace_macros(main_gd_template, &mod_name)
 		)
 			.with_context(|| format!("failed to write {}", main_gd_path.display()))?;
 
@@ -89,6 +109,16 @@ impl Vmb {
 				"git repository initialization (\"--no-git\" specified)",
 			);
 		} else {
+			if !gitignore_path.exists() {
+				fs::write(&gitignore_path, gitignore_template.unwrap())
+					.with_context(|| format!("failed to write {}", gitignore_path.display()))?;
+			} else {
+				print_status(
+					"Skipping",
+					format!("{} already exists", gitignore_path.display()),
+				);
+			}
+
 			Self::init_git_repo(&mod_path)?;
 		}
 
@@ -119,76 +149,19 @@ impl Vmb {
 	}
 
 	pub fn pack(output: PathBuf, inputs: Vec<PathBuf>) -> Result<()> {
-		let output = Self::enforce_extension(output, "vmz");
-
-		if inputs.is_empty() {
-			bail!("at least one input file or directory is required");
-		}
-
-		if let Some(parent) = output.parent() {
-			if !parent.as_os_str().is_empty() {
-				fs::create_dir_all(parent).with_context(|| {
-					format!("failed to create output directory: {}", parent.display())
-				})?;
-			}
-		}
-
-		let out_file = File::create(&output)
-			.with_context(|| format!("failed to create archive: {}", output.display()))?;
-		let mut writer = zip::ZipWriter::new(out_file);
-		let mut used_names = HashSet::new();
-
-		for input in inputs {
-			if !input.exists() {
-				bail!("input path does not exist: {}", input.display());
-			}
-
-			if input.is_file() {
-				let file_name = input
-					.file_name()
-					.and_then(|n| n.to_str())
-					.map(str::to_owned)
-					.with_context(|| format!("invalid file name: {}", input.display()))?;
-
-				Self::add_file_to_zip(
-					&mut writer,
-					&input,
-					&file_name,
-					CompressionMethod::Deflated,
-					&mut used_names,
-				)?;
-				continue;
-			}
-
-			let root_name = input
-				.file_name()
-				.and_then(|n| n.to_str())
-				.map(str::to_owned)
-				.unwrap_or_else(|| "root".to_string());
-
-			for entry in WalkDir::new(&input).into_iter().filter_map(|e| e.ok()) {
-				let path = entry.path();
-				if path.is_dir() {
-					continue;
-				}
-
-				let rel = path.strip_prefix(&input).with_context(|| {
-					format!("failed to compute relative path for {}", path.display())
-				})?;
-				let archive_name = Self::path_to_zip_name(Path::new(&root_name).join(rel));
-				Self::add_file_to_zip(
-					&mut writer,
-					path,
-					&archive_name,
-					CompressionMethod::Deflated,
-					&mut used_names,
-				)?;
-			}
-		}
-
-		writer.finish().context("failed to finalize archive")?;
-		print_status("Created", output.display().to_string());
-		Ok(())
+		let mod_name = output
+			.file_stem()
+			.and_then(|name| name.to_str())
+			.map(str::to_owned)
+			.unwrap_or_else(|| "mod".to_string());
+		let inputs = if inputs.is_empty() {
+			vec![PathBuf::from("mod.txt"), PathBuf::from("mods")]
+		} else {
+			inputs
+		};
+		let mut package = ModPackage::new(ModInfo::default_from(mod_name));
+		package.set_files(inputs);
+		package.pack(output)
 	}
 
 	pub fn install(source: PathBuf, path: Option<PathBuf>) -> Result<()> {
@@ -245,10 +218,15 @@ impl Vmb {
 	}
 
 	fn install_archive(archive: &Path, target_dir: &Path) -> Result<()> {
+
 		let file_name = archive
 			.file_name()
 			.context("archive path has no file name")?;
-		let destination = target_dir.join(file_name);
+
+		let mut destination = target_dir.join(file_name);
+		if let Some(ext) = archive.extension() && ext == "zip" {
+			destination.set_extension("vmz");
+		}
 
 		fs::copy(&archive, &destination).with_context(|| {
 			format!(
@@ -300,93 +278,76 @@ impl Vmb {
 		Ok(parent.join("mods"))
 	}
 
-	fn replace_macros(template: &str, mod_name: &str) -> String {
-		let mod_safe_name = to_safe_name(mod_name);
-		let mod_id = to_skewer_case(mod_name);
-
-		template
-			.replace("${MOD_NAME}", mod_name)
-			.replace("${MOD_SAFE_NAME}", &mod_safe_name)
-			.replace("${MOD_ID}", &mod_id)
-	}
-
-	fn add_file_to_zip(
-		writer: &mut zip::ZipWriter<File>,
-		source_path: &Path,
-		archive_name: &str,
-		compression_method: CompressionMethod,
-		used_names: &mut HashSet<String>,
-	) -> Result<()> {
-		if !used_names.insert(archive_name.to_string()) {
-			bail!("duplicate archive entry: {archive_name}");
-		}
-
-		let timestamp = Self::resolve_zip_datetime(source_path)?;
-		let options = SimpleFileOptions::default()
-			.compression_method(compression_method)
-			.last_modified_time(timestamp);
-
-		writer
-			.start_file(archive_name, options)
-			.with_context(|| format!("failed to start zip entry: {archive_name}"))?;
-
-		let mut file = File::open(source_path)
-			.with_context(|| format!("failed to open source file: {}", source_path.display()))?;
-		let mut buffer = Vec::new();
-		file.read_to_end(&mut buffer)
-			.with_context(|| format!("failed to read source file: {}", source_path.display()))?;
-		writer
-			.write_all(&buffer)
-			.with_context(|| format!("failed to write zip entry: {archive_name}"))?;
-		Ok(())
-	}
-
-	fn resolve_zip_datetime(source_path: &Path) -> Result<DateTime> {
-		let modified = fs::metadata(source_path)
-			.and_then(|meta| meta.modified())
-			.unwrap_or_else(|_| SystemTime::now());
-
-		Ok(Self::sys_time_to_zip_datetime(modified))
-	}
-
-	fn sys_time_to_zip_datetime(system_time: SystemTime) -> DateTime {
-		let dt = OffsetDateTime::from(system_time);
-
-		DateTime::from_date_and_time(
-			dt.year() as u16,
-			dt.month() as u8,
-			dt.day(),
-			dt.hour(),
-			dt.minute(),
-			dt.second(),
-		)
-			.unwrap_or_default()
-	}
-
-	fn enforce_extension(mut path: PathBuf, extension: &str) -> PathBuf {
-		let ext = path
-			.extension()
-			.and_then(|e| e.to_str())
-			.map(|e| e.eq_ignore_ascii_case(extension))
-			.unwrap_or(false);
-		if !ext {
-			path.set_extension(extension);
-		}
-		path
-	}
-
-	fn path_to_zip_name(path: PathBuf) -> String {
-		path.components()
-			.map(|c| c.as_os_str().to_string_lossy().to_string())
-			.collect::<Vec<_>>()
-			.join("/")
-	}
 
 	fn vostok_exe_path() -> PathBuf {
 		if cfg!(windows) {
 			PathBuf::from(Self::WINDOWS_DEFAULT_EXE_PATH)
 		} else {
 			PathBuf::from(Self::LINUX_DEFAULT_EXE_PATH)
+		}.join(Self::default_vostok_exe_name())
+	}
+
+	fn default_vostok_exe_name() -> &'static str {
+		if cfg!(windows) {
+			"RTV.exe"
+		} else {
+			"RTV.x86_64"
+		}
+	}
+
+	fn resolve_exe_path(exe_path: Option<PathBuf>) -> Result<PathBuf> {
+		if let Some(path) = exe_path {
+			if path.is_file() {
+				return Ok(path);
+			}
+			bail!("executable path does not exist or is not a file: {}", path.display());
+		}
+
+		if let Some(vostok_path) = std::env::var_os("VOSTOK_PATH") {
+			let path = PathBuf::from(vostok_path);
+			let candidate = if path.is_dir() {
+				path.join(Self::default_vostok_exe_name())
+			} else {
+				path
+			};
+
+			if candidate.is_file() {
+				return Ok(candidate);
+			}
+
+			bail!(
+				"failed to resolve executable from VOSTOK_PATH: {}",
+				candidate.display()
+			);
+		}
+
+		let default_exe = Self::vostok_exe_path();
+		if default_exe.is_file() {
+			return Ok(default_exe);
+		}
+
+		bail!(
+			"failed to locate Road to Vostok executable; try setting VOSTOK_PATH"
+		)
+	}
+
+	fn update_identifier() -> Option<String> {
+		#[cfg(all(target_os = "windows"))]
+		{
+			Some(format!("{}.zip", env!("TARGET")))
+		}
+	}
+
+	fn new_spinner(message: impl AsRef<str>) -> Option<ProgressBar> {
+		if stdout().is_terminal() {
+			let pb = ProgressBar::new_spinner();
+			pb.set_style(default_spinner_style());
+			pb.enable_steady_tick(Duration::from_millis(60));
+			pb.set_message(message.as_ref().to_string());
+			Some(pb)
+		}
+		else {
+			None
 		}
 	}
 
@@ -432,11 +393,83 @@ impl Vmb {
 		Ok((metadata.len(), metadata.modified().ok()))
 	}
 
-	fn print_log_file(path: &Path) -> Result<()> {
+	fn print_log(path: &Path) -> Result<()> {
 		let bytes = fs::read(path)
 			.with_context(|| format!("failed to read log file {}", path.display()))?;
-		println!("{}", String::from_utf8_lossy(&bytes));
+		Self::print_log_bytes(&bytes);
 		Ok(())
+	}
+
+	fn print_log_from_offset(path: &Path, offset: u64) -> Result<u64> {
+		let mut file = File::open(path)
+			.with_context(|| format!("failed to open log file {}", path.display()))?;
+		file.seek(SeekFrom::Start(offset))
+			.with_context(|| format!("failed to seek log file {}", path.display()))?;
+
+		let mut bytes = Vec::new();
+		file.read_to_end(&mut bytes)
+			.with_context(|| format!("failed to read log file {}", path.display()))?;
+
+		Self::print_log_bytes(&bytes);
+		Ok(bytes.len() as u64)
+	}
+
+	fn print_log_bytes(bytes: &[u8]) {
+		let text = String::from_utf8_lossy(bytes);
+
+		if !std::io::stdout().is_terminal() {
+			print!("{}", text);
+			return;
+		}
+
+		for line in text.split_inclusive('\n') {
+			print!("{}", Self::colorize_log_line(line));
+		}
+	}
+
+	fn colorize_log_line(line: &str) -> String {
+		#[allow(unused)]
+		enum LogFlagStyle {
+			Info,
+			Warning,
+			Error,
+			Trace,
+			Stack,
+		}
+
+		static RULES: OnceLock<Vec<(Regex, LogFlagStyle)>> = OnceLock::new();
+		let rules = RULES.get_or_init(|| {
+			vec![
+				(Regex::new(r"(?i)^(\[.+\])*\[(info)\]").unwrap(), LogFlagStyle::Info),
+				(Regex::new(r"(?i)^(\[.+\])\s*info:").unwrap(), LogFlagStyle::Info),
+				(Regex::new(r"(?i)^(\[.+\])*\[(warning)\]").unwrap(), LogFlagStyle::Warning),
+				(Regex::new(r"(?i)^(\[.+\])*\s*warning:").unwrap(), LogFlagStyle::Warning),
+				(Regex::new(r"(?i)^(\[.+\])*\[(error|critical)\]").unwrap(), LogFlagStyle::Error),
+				(Regex::new(r"(?i)^(\[.+\])*\s*(error|critical|script error):").unwrap(), LogFlagStyle::Error),
+				(Regex::new(r"(?i)^(\[.+\])*\[(debug)\]").unwrap(), LogFlagStyle::Trace),
+				(Regex::new(r"(?i)^(\[.+\])*\s*debug:").unwrap(), LogFlagStyle::Trace),
+				(Regex::new(r"^[^\S\r\n]{3,}at:\s+.*").unwrap(), LogFlagStyle::Stack),
+			]
+		});
+
+		for (rule, style) in rules {
+			if let Some(matched) = rule.find(line) {
+				if matched.start() != 0 {
+					continue;
+				}
+
+				let (flag, rest) = line.split_at(matched.end());
+				let styled_flag = match style {
+					LogFlagStyle::Error => console::style(flag).red().bold(),
+					LogFlagStyle::Warning => console::style(flag).yellow().bold(),
+					LogFlagStyle::Info => console::style(flag).cyan(),
+					LogFlagStyle::Trace => console::style(flag).magenta(),
+					LogFlagStyle::Stack => console::style(flag).black().bright(),
+				};
+				return format!("{}{}", styled_flag, rest);
+			}
+		}
+		line.to_string()
 	}
 
 	fn is_log_event(event: &Event, log_file: &Path) -> bool {
@@ -465,7 +498,27 @@ impl Vmb {
         )
 	}
 
+	fn ctrl_c_flag() -> std::sync::Arc<AtomicBool> {
+		static CTRL_C_FLAG: OnceLock<std::sync::Arc<AtomicBool>> = OnceLock::new();
+		let flag = CTRL_C_FLAG.get_or_init(|| {
+			let flag = std::sync::Arc::new(AtomicBool::new(false));
+			let signal_flag = std::sync::Arc::clone(&flag);
+			let _ = ctrlc::set_handler(move || {
+				signal_flag.store(true, Ordering::SeqCst);
+			});
+			flag
+		});
+
+		std::sync::Arc::clone(flag)
+	}
+
 	pub fn log(watch: bool) -> Result<()> {
+		let _alt_screen = if watch {
+			Some(ScopedTermBuffer::enter()?)
+		} else {
+			None
+		};
+
 		let log_dir =
 			Self::vostok_log_path().context("failed to locate Road to Vostok log directory")?;
 		let log_file = log_dir.join(Self::LOG_NAME);
@@ -475,7 +528,7 @@ impl Vmb {
 		}
 
 		print_status("Reading", log_file.display().to_string());
-		Self::print_log_file(&log_file)?;
+		Self::print_log(&log_file)?;
 
 		if !watch {
 			return Ok(());
@@ -495,33 +548,45 @@ impl Vmb {
 			format!("{} (Ctrl+C to stop)", log_file.display()),
 		);
 
-		let mut last_state = Some(Self::read_log_state(&log_file)?);
+		let ctrl_c_flag = Self::ctrl_c_flag();
+		ctrl_c_flag.store(false, Ordering::SeqCst);
+
+		let mut read_offset = fs::metadata(&log_file).map(|meta| meta.len()).unwrap_or(0);
 		let mut was_missing = false;
 
 		loop {
-			match rx
-				.recv()
-				.context("failed to receive file change notification")?
-			{
-				Ok(event) => {
+			if ctrl_c_flag.load(Ordering::SeqCst) {
+				break;
+			}
+
+			match rx.recv_timeout(Duration::from_millis(250)) {
+				Err(mpsc::RecvTimeoutError::Timeout) => continue,
+				Err(mpsc::RecvTimeoutError::Disconnected) => {
+					bail!("filesystem watcher channel disconnected")
+				}
+				Ok(Ok(event)) => {
 					if !Self::should_refresh_log(&event, &log_file) {
 						continue;
 					}
 
 					match Self::read_log_state(&log_file) {
-						Ok(state) => {
-							let changed = Some(state) != last_state || was_missing;
-							last_state = Some(state);
+						Ok((len, _)) => {
+							if len < read_offset {
+								// File was truncated/rotated; start reading from beginning again.
+								read_offset = 0;
+							}
 
-							if changed {
+							if len > read_offset || was_missing {
 								was_missing = false;
 								println!();
 								print_status("Updated", log_file.display().to_string());
-								Self::print_log_file(&log_file)?;
+
+								let appended = Self::print_log_from_offset(&log_file, read_offset)?;
+								read_offset += appended;
 							}
 						}
 						Err(_) => {
-							last_state = None;
+							read_offset = 0;
 							if !was_missing {
 								print_status(
 									"Info",
@@ -535,11 +600,72 @@ impl Vmb {
 						}
 					}
 				}
-				Err(err) => {
+				Ok(Err(err)) => {
 					print_status("Info", format!("watch error: {err}"));
 				}
 			}
 		}
+
+		Ok(())
+	}
+
+	pub fn run(exe_path: Option<PathBuf>, api: Option<RenderingAPI>, args: Vec<String>) -> Result<()> {
+		let exe_path = Self::resolve_exe_path(exe_path)?;
+		let mut launch_args = args;
+		if let Some(api) = api {
+			launch_args.push("--rendering-driver".to_string());
+			launch_args.push(api.as_driver_name().to_string());
+		}
+
+		let display_cmd = if launch_args.is_empty() {
+			exe_path.display().to_string()
+		} else {
+			format!("{} {}", exe_path.display(), launch_args.join(" "))
+		};
+		print_status("Running", display_cmd);
+
+		GameWrapper::new(exe_path, launch_args).run(Self::ctrl_c_flag(), Self::print_log_bytes)?;
+		Ok(())
+	}
+
+	pub fn update() -> Result<()> {
+		let mut update_cfg = Update::configure();
+
+		update_cfg
+			.repo_owner("ScriptExec")
+			.repo_name("vmb")
+			.bin_name("vmb")
+			.current_version(cargo_crate_version!())
+			.show_download_progress(false)
+			.no_confirm(true)
+			.show_output(false);
+
+		if let Some(identifier) = Self::update_identifier() {
+			update_cfg.identifier(identifier.as_str());
+		}
+
+		let updater = update_cfg
+			.build()
+			.context("failed to configure updater")?;
+
+		print_status("Updating", format!("downloading latest '{}' update package", updater.target()));
+		let check_pb = Self::new_spinner(format!("checking for updates for {}", updater.target()));
+		let status = updater
+			.update()
+			.context("failed to download or apply update")?;
+
+		if let Some(pb) = check_pb {
+			pb.finish_and_clear();
+		}
+		match status {
+			Status::UpToDate(version) => {
+				print_status("Finished", format!("already up to date [version: {}]", version));
+			},
+			Status::Updated(version) => {
+				print_status("Updated", format!("successfully updated to version {}", version));
+			}
+		}
+		Ok(())
 	}
 
 	pub fn modify(mod_path: &Path, mod_info: &mut ModInfo, mod_info_override: ModInfoOverride, silent: bool, overwrite: bool) -> Result<()> {

@@ -10,7 +10,7 @@ pub struct ModInfoOverride {
 	pub name: Option<String>,
 	pub id: Option<String>,
 	pub version: Option<Version>,
-	pub priority: Option<u32>,
+	pub priority: Option<i32>,
 	pub autoload: Option<HashMap<String, String>>,
 	pub updates: Option<ModUpdatesInfo>,
 }
@@ -28,7 +28,7 @@ pub struct ModBaseInfo {
 	pub name: String,
 	pub id: String,
 	pub version: Version,
-	pub priority: Option<u32>,
+	pub priority: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
