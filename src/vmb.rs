@@ -332,9 +332,11 @@ impl Vmb {
 	}
 
 	fn update_identifier() -> Option<String> {
-		#[cfg(all(target_os = "windows"))]
-		{
+		if cfg!(windows) {
 			Some(format!("{}.zip", env!("TARGET")))
+		}
+		else {
+			None
 		}
 	}
 
