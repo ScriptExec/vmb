@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{IsTerminal, Read, Seek, SeekFrom};
+use std::io::{stdout, IsTerminal, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, OnceLock};
@@ -8,14 +8,18 @@ use std::time::{Duration, SystemTime};
 use crate::game_wrapper::GameWrapper;
 use crate::mod_info::{ModInfo, ModInfoOverride};
 use crate::mod_package::ModPackage;
+use crate::progress::default_spinner_style;
 use crate::rendering_api::RenderingAPI;
 use crate::util::{derive_dir_name, print_status, to_safe_name, to_skewer_case};
 use anyhow::{bail, Context, Result};
+use indicatif::ProgressBar;
 use directories::BaseDirs;
 use git2::Repository;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use regex::Regex;
 use tempfile::TempDir;
+use self_update::backends::github::Update;
+use self_update::{cargo_crate_version, Status};
 use crate::scoped_term_buffer::ScopedTermBuffer;
 
 include!(concat!(env!("OUT_DIR"), "/generated_templates.rs"));
@@ -322,6 +326,26 @@ impl Vmb {
 		)
 	}
 
+	fn update_identifier() -> Option<String> {
+		#[cfg(all(target_os = "windows"))]
+		{
+			Some(format!("{}.zip", env!("TARGET")))
+		}
+	}
+
+	fn new_spinner(message: impl AsRef<str>) -> Option<ProgressBar> {
+		if stdout().is_terminal() {
+			let pb = ProgressBar::new_spinner();
+			pb.set_style(default_spinner_style());
+			pb.enable_steady_tick(Duration::from_millis(60));
+			pb.set_message(message.as_ref().to_string());
+			Some(pb)
+		}
+		else {
+			None
+		}
+	}
+
 	fn vostok_data_path() -> Option<PathBuf> {
 		match BaseDirs::new() {
 			Some(dirs) => {
@@ -596,6 +620,46 @@ impl Vmb {
 		print_status("Running", display_cmd);
 
 		GameWrapper::new(exe_path, launch_args).run(Self::ctrl_c_flag(), Self::print_log_bytes)?;
+		Ok(())
+	}
+
+	pub fn update() -> Result<()> {
+		let mut update_cfg = Update::configure();
+
+		update_cfg
+			.repo_owner("ScriptExec")
+			.repo_name("vmb")
+			.bin_name("vmb")
+			.current_version(cargo_crate_version!())
+			.show_download_progress(false)
+			.no_confirm(true)
+			.show_output(false);
+
+		if let Some(identifier) = Self::update_identifier() {
+			update_cfg.identifier(identifier.as_str());
+		}
+
+		let updater = update_cfg
+			.build()
+			.context("failed to configure updater")?;
+
+		print_status("Updating", format!("downloading latest '{}' update package", updater.target()));
+		let check_pb = Self::new_spinner(format!("checking for updates for {}", updater.target()));
+		let status = updater
+			.update()
+			.context("failed to download or apply update")?;
+
+		if let Some(pb) = check_pb {
+			pb.finish_and_clear();
+		}
+		match status {
+			Status::UpToDate(version) => {
+				print_status("Finished", format!("already up to date {}", version));
+			},
+			Status::Updated(version) => {
+				print_status("Updated", format!("successfully updated to version {}", version));
+			}
+		}
 		Ok(())
 	}
 

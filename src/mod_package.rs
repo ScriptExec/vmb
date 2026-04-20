@@ -1,16 +1,18 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{bail, Context, Result};
+use indicatif::ProgressBar;
 use time::OffsetDateTime;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime};
 
 use crate::mod_info::ModInfo;
+use crate::progress::default_progress_style;
 use crate::util::print_status;
 
 pub struct ModPackage {
@@ -45,6 +47,7 @@ impl ModPackage {
 			.with_context(|| format!("failed to create archive: {}", output.display()))?;
 		let mut writer = zip::ZipWriter::new(out_file);
 		let mut used_names = HashSet::new();
+		let progress = Self::new_pack_progress(self.count_packable_bytes()?);
 
 		for input in &self.inputs {
 			if !input.exists() {
@@ -65,6 +68,10 @@ impl ModPackage {
 					CompressionMethod::Deflated,
 					&mut used_names,
 				)?;
+				if let Some(pb) = progress.as_ref() {
+					let written = fs::metadata(&input).map(|m| m.len()).unwrap_or(0);
+					pb.inc(written);
+				}
 				continue;
 			}
 
@@ -91,14 +98,61 @@ impl ModPackage {
 					CompressionMethod::Deflated,
 					&mut used_names,
 				)?;
+				if let Some(pb) = progress.as_ref() {
+					let written = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+					pb.inc(written);
+				}
 			}
 		}
 
 		writer.finish().context("failed to finalize archive")?;
+		if let Some(pb) = progress {
+			pb.finish_and_clear();
+		}
 		print_status("Created", output.display().to_string());
 		Ok(())
 	}
-	
+
+	fn count_packable_bytes(&self) -> Result<u64> {
+		let mut total = 0_u64;
+
+		for input in &self.inputs {
+			if !input.exists() {
+				bail!("input path does not exist: {}", input.display());
+			}
+
+			if input.is_file() {
+				total += fs::metadata(input)
+					.with_context(|| format!("failed to read metadata for {}", input.display()))?
+					.len();
+				continue;
+			}
+
+			for entry in WalkDir::new(input).into_iter().filter_map(|e| e.ok()) {
+				if entry.path().is_file() {
+					total += fs::metadata(entry.path())
+						.with_context(|| {
+							format!("failed to read metadata for {}", entry.path().display())
+						})?
+						.len();
+				}
+			}
+		}
+
+		Ok(total)
+	}
+
+	fn new_pack_progress(total_bytes: u64) -> Option<ProgressBar> {
+		if total_bytes == 0 || !std::io::stdout().is_terminal() {
+			return None;
+		}
+
+		let pb = ProgressBar::new(total_bytes);
+		pb.set_style(default_progress_style());
+		pb.enable_steady_tick(std::time::Duration::from_millis(100));
+		Some(pb)
+	}
+
 	pub fn set_files(&mut self, inputs: Vec<PathBuf>) {
 		self.inputs = inputs;
 	}
@@ -137,7 +191,7 @@ impl ModPackage {
 	fn get_file_mod_time(source_path: &Path) -> Result<DateTime> {
 		let modified = fs::metadata(source_path)
 			.and_then(|meta| meta.modified())
-			.unwrap_or_else(|_| SystemTime::now());
+			.unwrap_or(SystemTime::now());
 
 		Ok(Self::sys_time_to_datetime(modified))
 	}

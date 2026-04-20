@@ -32,6 +32,8 @@ directories = "6.0.0"
 notify = "8.2.0"
 regex = "1.12.3"
 ctrlc = "3.5.2"
+self_update = { version = "0.44.0", features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate"] }
+indicatif = "0.18.4"
 
 [profile.release]
 opt-level = "z"

@@ -22,6 +22,7 @@ Commands:
   install  Install a [.zip|.vmz] archive or a mod root directory into an auto-detected or provided directory
   log      Displays the latest output log (if available)
   run      Runs the game and streams the log output
+  self     Self-management commands
   help     Print this message or the help of the given subcommand(s)
 
 Options:
@@ -60,6 +61,9 @@ vmb install .
 vmb run
 # Run with explicit rendering API [vk, dx12] and pass additional arguments to the game
 vmb run --api vk -- --some-arg
+
+# Update vmb to the latest release
+vmb self update
 ```
 
 ## Building

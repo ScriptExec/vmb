@@ -115,6 +115,18 @@ pub(crate) enum Command {
 		#[arg(trailing_var_arg = true, allow_hyphen_values = true)]
 		args: Vec<String>,
 	},
+	/// Self-management commands
+	#[command(name = "self")]
+	SelfCmd {
+		#[command(subcommand)]
+		command: SelfCommand,
+	},
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum SelfCommand {
+	/// Updates the app to the latest release
+	Update,
 }
 
 impl Cli {
@@ -184,6 +196,9 @@ impl Cli {
 				api,
 				args,
 			} => Vmb::run(None, api, args),
+			Command::SelfCmd { command } => match command {
+				SelfCommand::Update => Vmb::update(),
+			},
 		}
 	}
 }

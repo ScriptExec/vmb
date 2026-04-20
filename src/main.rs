@@ -3,6 +3,7 @@ use clap::Parser;
 
 mod cli;
 mod game_wrapper;
+mod progress;
 mod rendering_api;
 mod util;
 pub mod vmb;
