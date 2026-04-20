@@ -5,10 +5,15 @@
 
 This tool provides a simple CLI for mod developers, used to package and install mods for [Road to Vostok](https://store.steampowered.com/app/1963610/Road_to_Vostok/).
 
+> [!TIP]
+> If you are new to modding consider visiting the [Vostok Modding Wiki](https://github.com/ametrocavich/vostok-modding-wiki/wiki) for guides and resources to get started.
+
 ### This tool supports:
 - Initializing a directory with mod boilerplate files
 - Packing files into a `.vmz` archive
 - Installing mods from either a .`zip` archive or a `.vmz` archive or a directory
+- Modifying mod parameters (e.g., name, version, priority)
+- Viewing the latest output log from the game (if available)
 
 ## Overview
 ```shell
@@ -42,7 +47,7 @@ For more help on a specific command, run `vmb <COMMAND> --help` or `vmb help <CO
    - On Windows, `C:\Program Files (x86)\Steam\steamapps\common\Road to Vostok\` when present
    - On Linux, `~/.steam/steam/steamapps/common/Road to Vostok/` when present
 
-## Example
+## Examples
 ```shell
 # Initialize a mod directory with git repository
 vmb init "My First Mod"
