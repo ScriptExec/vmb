@@ -88,8 +88,7 @@ pub(crate) enum Command {
 		/// Output archive path (.vmz extension is enforced)
 		#[arg(short, long)]
 		output: PathBuf,
-		/// Files/directories to include
-		#[arg(required = true)]
+		/// Files/directories to include [defaults to ./mod.txt and ./mods when omitted]
 		inputs: Vec<PathBuf>,
 	},
 	/// Install a [.zip|.vmz] archive or a mod root directory into an auto-detected or provided directory

@@ -154,6 +154,11 @@ impl Vmb {
 			.and_then(|name| name.to_str())
 			.map(str::to_owned)
 			.unwrap_or_else(|| "mod".to_string());
+		let inputs = if inputs.is_empty() {
+			vec![PathBuf::from("mod.txt"), PathBuf::from("mods")]
+		} else {
+			inputs
+		};
 		let mut package = ModPackage::new(ModInfo::default_from(mod_name));
 		package.set_files(inputs);
 		package.pack(output)
@@ -654,7 +659,7 @@ impl Vmb {
 		}
 		match status {
 			Status::UpToDate(version) => {
-				print_status("Finished", format!("already up to date {}", version));
+				print_status("Finished", format!("already up to date [version: {}]", version));
 			},
 			Status::Updated(version) => {
 				print_status("Updated", format!("successfully updated to version {}", version));

@@ -18,7 +18,7 @@ Usage:
 Commands:
   init     Initialize the given path with mod boilerplate
   modify   Modify parameters of the mod
-  pack     Package one or more files/directories into a .vmz archive
+  pack     Package files/directories into a .vmz archive [defaults: ./mod.txt ./mods]
   install  Install a [.zip|.vmz] archive or a mod root directory into an auto-detected or provided directory
   log      Displays the latest output log (if available)
   run      Runs the game and streams the log output
@@ -50,6 +50,8 @@ cd "My First Mod"
 
 # Package the mod directory into a .vmz archive
 vmb pack -o MyFirstMod.vmz ./mods ./mod.txt
+# Or rely on default inputs in the current directory (./mod.txt and ./mods)
+vmb pack -o MyFirstMod.vmz
 # Modify the mod's parameters (e.g., name, version, priority)
 vmb modify -n "My First Custom Mod" -i "my-first-mod-id" -p 10 -v 1.0.0 -u 12345
 # Install the mod from the .vmz archive to the detected mods directory
@@ -80,4 +82,3 @@ or straight from the git repository:
 ```shell
 cargo install --locked --git https://github.com/ScriptExec/vmb
 ```
-
