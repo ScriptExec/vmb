@@ -18,6 +18,9 @@ This tool provides a simple CLI for mod developers, used to package and install 
 - Installing mods from either a .`zip` archive or a `.vmz` archive or a directory
 - Modifying mod parameters (e.g., name, version, priority)
 - Viewing the latest output log from the game (if available)
+- Running the game and streaming the log output
+- Managing installed mods (e.g., listing, enabling/disabling)
+- Applying updates via `self update` subcommand
 
 ## Overview
 ```shell
