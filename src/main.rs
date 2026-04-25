@@ -10,6 +10,9 @@ pub mod vmb;
 pub mod mod_info;
 pub mod scoped_term_buffer;
 pub mod mod_package;
+pub mod mod_config;
+pub mod ini;
+pub mod app_data;
 
 use crate::cli::Cli;
 use crate::util::print_error;

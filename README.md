@@ -18,6 +18,9 @@ This tool provides a simple CLI for mod developers, used to package and install 
 - Installing mods from either a .`zip` archive or a `.vmz` archive or a directory
 - Modifying mod parameters (e.g., name, version, priority)
 - Viewing the latest output log from the game (if available)
+- Running the game and streaming the log output
+- Managing installed mods (e.g., listing, enabling/disabling)
+- Applying updates via `self update` subcommand
 
 ## Overview
 ```shell
@@ -27,10 +30,11 @@ Usage:
 Commands:
   init     Initialize the given path with mod boilerplate
   modify   Modify parameters of the mod
-  pack     Package files/directories into a .vmz archive [defaults: ./mod.txt ./mods]
+  pack     Package one or more files/directories into a .vmz archive
   install  Install a [.zip|.vmz] archive or a mod root directory into an auto-detected or provided directory
   log      Displays the latest output log (if available)
   run      Runs the game and streams the log output
+  mod      Mod related commands
   self     Self-management commands
   help     Print this message or the help of the given subcommand(s)
 
@@ -67,6 +71,11 @@ vmb modify -n "My First Custom Mod" -i "my-first-mod-id" -p 10 -v 1.0.0 -u 12345
 vmb install MyFirstMod.vmz
 # Alternatively, install the mod directly from the mod directory
 vmb install .
+
+# List all installed mods
+vmb mod list
+# Enable/disable mods without opening the game
+vmb mod toggle
 
 # Run the game and stream log output
 vmb run

@@ -1,4 +1,13 @@
+# Version 0.4.0
+This release introduces a new `mod` subcommand with features to list and toggle installed mods, allowing users to manage their mods more easily without opening the game.
+
+## Features
+- Added new subcommands:
+  - `mod list` which lists all installed mods
+  - `mod toggle` which allows the user to enable or disable specific mods without opening the game
+
 # Version 0.3.0
+This release introduces the ability to run the game directly from the command line and stream the log output, better git integration as well as an update mechanism.
 
 ## Features
 - Added `log` subcommand output colorization for log flags (e.g., INFO, WARNING, ERROR)
