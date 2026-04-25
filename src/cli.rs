@@ -114,12 +114,26 @@ pub(crate) enum Command {
 		#[arg(trailing_var_arg = true, allow_hyphen_values = true)]
 		args: Vec<String>,
 	},
+	/// Mod related commands
+	#[command(name = "mod")]
+	ModCommand {
+		#[command(subcommand)]
+		command: ModCommand,
+	},
 	/// Self-management commands
 	#[command(name = "self")]
 	SelfCmd {
 		#[command(subcommand)]
 		command: SelfCommand,
 	},
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ModCommand {
+	/// Interactively toggle mods on/off
+	Toggle,
+	/// Lists all installed mods
+	List,
 }
 
 #[derive(Subcommand, Debug)]
@@ -195,6 +209,10 @@ impl Cli {
 				api,
 				args,
 			} => Vmb::run(None, api, args),
+			Command::ModCommand { command } => match command {
+				ModCommand::Toggle => Vmb::toggle_mods(None),
+				ModCommand::List => Vmb::list_mods(None),
+			},
 			Command::SelfCmd { command } => match command {
 				SelfCommand::Update => Vmb::update(),
 			},

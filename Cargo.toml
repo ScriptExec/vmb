@@ -6,7 +6,7 @@ description = "Vostok Mod Builder - A tool for building mods for Road to Vostok"
 repository = "https://github.com/ScriptExec/vmb"
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
-version = "0.3.0"
+version = "0.4.0"
 license = "MIT"
 edition = "2024"
 
@@ -34,6 +34,8 @@ regex = "1.12.3"
 ctrlc = "3.5.2"
 self_update = { version = "0.44.0", features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate"] }
 indicatif = "0.18.4"
+inquire = { version = "0.9.4", features = ["console"] }
+getset = "0.1.6"
 
 [profile.release]
 opt-level = "z"

@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{stdout, IsTerminal, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -15,11 +16,14 @@ use anyhow::{bail, Context, Result};
 use indicatif::ProgressBar;
 use directories::BaseDirs;
 use git2::Repository;
+use inquire::MultiSelect;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use regex::Regex;
 use tempfile::TempDir;
 use self_update::backends::github::Update;
 use self_update::{cargo_crate_version, Status};
+use crate::app_data::AppData;
+use crate::mod_config::ModConfig;
 use crate::scoped_term_buffer::ScopedTermBuffer;
 
 include!(concat!(env!("OUT_DIR"), "/generated_templates.rs"));
@@ -34,6 +38,7 @@ impl Vmb {
 	const LINUX_DEFAULT_EXE_PATH: &'static str =
 		"~/.steam/steam/steamapps/common/Road to Vostok/";
 	const LOG_NAME: &str = "godot.log";
+	const MOD_CONFIG_NAME: &str = "mod_config.cfg";
 
 	fn load_template(name: &str) -> Result<&str> {
 		let templates = template_map();
@@ -609,6 +614,112 @@ impl Vmb {
 		}
 
 		Ok(())
+	}
+
+	/// `id_map` - Maps mod ID's to mod names
+	pub fn toggle_mods(mut id_map: Option<HashMap<String, String>>) -> Result<()> {
+
+		let data_path = Self::vostok_data_path()
+			.context("failed to locate Road to Vostok data directory")?;
+		let config_path = data_path.join(Self::MOD_CONFIG_NAME);
+		let mut config = ModConfig::from_path(&config_path)?;
+		let (profile_name, profile) = config.active_profile().context("failed to get active profile")?;
+
+		if id_map.is_none() {
+			id_map = Some(Self::mod_id_map(None)?);
+		}
+
+		let entries = profile.to_entries(id_map)?;
+		let defaults = entries
+			.iter()
+			.enumerate()
+			.filter_map(|(i, entry)|
+				if entry.enabled {
+					Some(i)
+				} else {
+					None
+				}
+			).collect::<Vec<_>>();
+
+		let mut new_entries = entries.clone();
+		let message = format!("Select which mods should be enabled for '{profile_name}' profile:");
+		let enabled_mods = MultiSelect::new(message.as_str(), entries)
+			.with_default(&defaults)
+			.prompt();
+		match enabled_mods {
+			Ok(enabled_mods) => {
+				let enabled_mods: HashSet<String> = enabled_mods
+					.iter()
+					.map(|e| e.name())
+					.collect();
+
+				for entry in &mut new_entries {
+					entry.enabled = enabled_mods.contains(&entry.name());
+				}
+				new_entries.sort();
+
+				profile.set_entries(new_entries);
+
+				let appdata = AppData::new();
+				let backup_path = appdata.backup(config_path.clone())?;
+				print_status("Backed up", format!("mod config to {}", backup_path.display()));
+				config.write(config_path.as_path())?;
+				print_status("Saved", format!("mod config to {}", config_path.display()));
+			},
+			Err(_) => {}
+		}
+		Ok(())
+	}
+
+	pub fn list_mods(path: Option<PathBuf>) -> Result<()> {
+		let mut mods = Self::installed_mods(path)?;
+		mods.sort();
+		for info in mods {
+			println!("- {}", info);
+		}
+		Ok(())
+	}
+
+	fn mod_id_map(path: Option<PathBuf>) -> Result<HashMap<String, String>> {
+		let mods = Self::installed_mods(path)?;
+		let map = mods.iter()
+			.map(|info| (info.base.id.clone(), info.base.name.clone()))
+			.collect::<HashMap<_, _>>();
+		Ok(map)
+	}
+
+	fn installed_mods(path: Option<PathBuf>) -> Result<Vec<ModInfo>> {
+		let mods_dir = Self::resolve_install_dir(path)?;
+		let mut mods = Vec::new();
+
+		for entry in fs::read_dir(&mods_dir)
+			.with_context(|| format!("failed to read mods directory {}", mods_dir.display()))?
+		{
+			let entry = entry?;
+			let path = entry.path();
+
+			if !path.is_file() {
+				continue;
+			}
+
+			let ext = path
+				.extension()
+				.and_then(|s| s.to_str())
+				.map(|s| s.to_ascii_lowercase());
+
+			if !matches!(ext.as_deref(), Some("vmz" | "zip")) {
+				continue;
+			}
+
+			match ModInfo::from_archive(&path) {
+				Ok(mod_info) => mods.push(mod_info),
+				Err(err) => {
+					print_status("Skipping", format!("{} ({err})", path.display()));
+				}
+			}
+		}
+
+		Ok(mods)
 	}
 
 	pub fn run(exe_path: Option<PathBuf>, api: Option<RenderingAPI>, args: Vec<String>) -> Result<()> {
