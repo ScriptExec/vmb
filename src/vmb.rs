@@ -1,9 +1,10 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{stdout, IsTerminal, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, OnceLock};
+use std::sync::{mpsc, LazyLock, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use crate::game_wrapper::GameWrapper;
@@ -18,7 +19,7 @@ use directories::BaseDirs;
 use git2::Repository;
 use inquire::MultiSelect;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use regex::Regex;
+use regex::{Captures, Regex};
 use tempfile::TempDir;
 use self_update::backends::github::Update;
 use self_update::{cargo_crate_version, Status};
@@ -671,11 +672,29 @@ impl Vmb {
 		Ok(())
 	}
 
+	fn colorize_semver(line: &str) -> String {
+		static SEMVER_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?"#).unwrap());
+
+		let result: Cow<str> = SEMVER_REGEX.replace_all(line, |caps: &Captures| {
+			let ver = caps.get(0).unwrap().as_str();
+			console::style(ver).black().bright().to_string()
+		});
+
+		result.into_owned()
+	}
+
 	pub fn list_mods(path: Option<PathBuf>) -> Result<()> {
 		let mut mods = Self::installed_mods(path)?;
 		mods.sort();
-		for info in mods {
-			println!("- {}", info);
+		if std::io::stdout().is_terminal() {
+			for info in mods {
+				let colorized_info = Self::colorize_semver(format!("{}", info).as_str());
+				println!("{} {}", console::style("-").green(), colorized_info);
+			}
+		} else {
+			for info in mods {
+				println!("- {}", info);
+			}
 		}
 		Ok(())
 	}
